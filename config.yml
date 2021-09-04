@@ -1,0 +1,4 @@
+log:
+  level: trace
+telemetry:
+  enable: true
