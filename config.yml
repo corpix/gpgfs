@@ -2,3 +2,7 @@ log:
   level: trace
 telemetry:
   enable: true
+fuse:
+  key:
+    format: ssh
+    path: ./test/ssh-key-rsa

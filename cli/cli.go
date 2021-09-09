@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	watchdog "github.com/cloudflare/tableflip"
 	revip "github.com/corpix/revip"
 	spew "github.com/davecgh/go-spew/spew"
 	cli "github.com/urfave/cli/v2"
@@ -22,9 +23,9 @@ import (
 	"git.backbone/corpix/gpgfs/pkg/config"
 	"git.backbone/corpix/gpgfs/pkg/crypto"
 	"git.backbone/corpix/gpgfs/pkg/errors"
+	"git.backbone/corpix/gpgfs/pkg/fuse"
 	"git.backbone/corpix/gpgfs/pkg/log"
 	"git.backbone/corpix/gpgfs/pkg/meta"
-	"git.backbone/corpix/gpgfs/pkg/server/session"
 	"git.backbone/corpix/gpgfs/pkg/telemetry"
 )
 
@@ -33,13 +34,6 @@ var (
 	Stderr = os.Stderr
 
 	Flags = []cli.Flag{
-		&cli.StringFlag{
-			Name:    "pid-file",
-			Aliases: []string{"p"},
-			EnvVars: []string{config.EnvironPrefix + "_PID_FILE"},
-			Usage:   "path to pid file to report into",
-			Value:   meta.Name + ".pid",
-		},
 		&cli.StringFlag{
 			Name:    "log-level",
 			Aliases: []string{"l"},
@@ -102,43 +96,123 @@ var (
 			},
 		},
 		{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "Server tools",
+			Name:    "key",
+			Aliases: []string{"k"},
+			Usage:   "Key tooling",
 			Subcommands: []*cli.Command{
 				{
-					Name:    "session",
-					Aliases: []string{"s"},
-					Usage:   "Session tools",
-					Subcommands: []*cli.Command{
-						{
-							Name:      "show",
-							Aliases:   []string{"s"},
-							Usage:     "Show session passed as argument (if empty will read from stdin)",
-							ArgsUsage: "[session]",
-							Action:    ServerSessionShowAction,
-							Flags: []cli.Flag{
-								&cli.StringFlag{
-									Name:    "key",
-									Aliases: []string{"k"},
-									EnvVars: []string{config.EnvironPrefix + "_SERVER_SESSION_SHOW_KEY"},
-									Usage:   "encryption key",
-								},
-								&cli.BoolFlag{
-									Name:    "json",
-									Aliases: []string{"j"},
-									Usage:   "use json format",
-								},
-							},
+					Name:    "convert",
+					Aliases: []string{"c"},
+					Usage:   "Convert key from one format into another",
+					Action:  KeyConvertAction,
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "type",
+							Aliases: []string{"t"},
+							Value:   "public",
+							Usage:   "Key type to output (public or private)",
+						},
+						&cli.StringFlag{
+							Name:    "input",
+							Aliases: []string{"i"},
+							Value:   "-",
+							Usage:   "Key file or '-' to use stdin as a source to read key",
+						},
+						&cli.StringFlag{
+							Name:    "output",
+							Aliases: []string{"o"},
+							Value:   "-",
+							Usage:   "Key file or '-' to use stdout as a target to write key",
 						},
 					},
 				},
 			},
 		},
+		{
+			Name:    "message",
+			Aliases: []string{"m"},
+			Usage:   "Message tooling",
+			Subcommands: []*cli.Command{
+				{
+					Name:    "encrypt",
+					Aliases: []string{"e"},
+					Usage:   "Encrypt message",
+					Action:  MessageEncryptAction,
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:     "key",
+							Aliases:  []string{"k"},
+							Required: true,
+							Usage:    "Key path on the filesystem (private)",
+						},
+						&cli.StringFlag{
+							Name:    "input",
+							Aliases: []string{"i"},
+							Value:   "-",
+							Usage:   "Key file or '-' to use stdin as a source to read key",
+						},
+						&cli.StringFlag{
+							Name:    "output",
+							Aliases: []string{"o"},
+							Value:   "-",
+							Usage:   "Key file or '-' to use stdout as a target to write key",
+						},
+					},
+				},
+				{
+					Name:    "decrypt",
+					Aliases: []string{"e"},
+					Usage:   "Decrypt message",
+					Action:  MessageDecryptAction,
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:     "key",
+							Aliases:  []string{"k"},
+							Required: true,
+							Usage:    "Key path on the filesystem (private)",
+						},
+						&cli.StringFlag{
+							Name:    "input",
+							Aliases: []string{"i"},
+							Value:   "-",
+							Usage:   "Key file or '-' to use stdin as a source to read key",
+						},
+						&cli.StringFlag{
+							Name:    "output",
+							Aliases: []string{"o"},
+							Value:   "-",
+							Usage:   "Key file or '-' to use stdout as a target to write key",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:    "mount",
+			Aliases: []string{"m"},
+			Usage:   "Mount GPG FUSE",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "source",
+					Aliases:  []string{"s"},
+					Usage:    "source directory with .gpg tree",
+					Required: true,
+				},
+				&cli.StringFlag{
+					Name:     "target",
+					Aliases:  []string{"t"},
+					Usage:    "target directory to mount filesystem with decrypted files",
+					Required: true,
+				},
+			},
+			Action: MountAction,
+		},
 	}
 
 	c *di.Container
 )
+
+type doneCh = chan struct{}
 
 func Before(ctx *cli.Context) error {
 	var err error
@@ -146,6 +220,11 @@ func Before(ctx *cli.Context) error {
 	c = di.New()
 
 	//
+
+	err = c.Provide(func() doneCh { return make(doneCh) })
+	if err != nil {
+		return err
+	}
 
 	err = c.Provide(func() *cli.Context { return ctx })
 	if err != nil {
@@ -215,7 +294,7 @@ func Before(ctx *cli.Context) error {
 		c *config.Config,
 		l log.Logger,
 		r *telemetry.Registry,
-		w *watchdog.Upgrader,
+		done doneCh,
 		running *sync.WaitGroup,
 		errc chan error,
 	) (*telemetry.Server, error) {
@@ -228,8 +307,8 @@ func Before(ctx *cli.Context) error {
 
 		finalize := func(t *telemetry.Server) {
 			defer running.Done()
-			<-w.Exit()
 
+			<-done
 			err = t.Shutdown(context.Background())
 			if err != nil {
 				panic(errors.Wrap(err, "telemetry shutdown failed"))
@@ -237,7 +316,7 @@ func Before(ctx *cli.Context) error {
 		}
 
 		if c.Telemetry.Enable {
-			lr, err := w.Listen("tcp", c.Telemetry.Addr)
+			lr, err := net.Listen("tcp", c.Telemetry.Addr)
 			if err != nil {
 				return nil, err
 			}
@@ -258,16 +337,6 @@ func Before(ctx *cli.Context) error {
 	}
 
 	//
-
-	err = c.Provide(func(ctx *cli.Context, c *config.Config) (*watchdog.Upgrader, error) {
-		return watchdog.New(watchdog.Options{
-			UpgradeTimeout: c.ShutdownGraceTime,
-			PIDFile:        ctx.String("pid-file"),
-		})
-	})
-	if err != nil {
-		return err
-	}
 
 	err = c.Provide(func() *sync.WaitGroup { return &sync.WaitGroup{} })
 	if err != nil {
@@ -419,46 +488,296 @@ func ConfigPushAction(ctx *cli.Context) error {
 	})
 }
 
-func ServerSessionShowAction(ctx *cli.Context) error {
-	return c.Invoke(func(rand crypto.Rand, enc *json.Encoder, debug *spew.ConfigState) error {
-		key := ctx.String("key")
+//
 
-		s, err := session.New(session.Config{EncryptionKey: key}, rand)
-		if err != nil {
-			return err
-		}
+func KeyConvertAction(ctx *cli.Context) error {
+	return c.Invoke(func() error {
+		var (
+			input   io.ReadCloser
+			output  io.WriteCloser
+			err     error
+			keyType = ctx.String("type")
+		)
 
-		buf := []byte(ctx.Args().First())
-		if len(buf) == 0 {
-			buf, err = ioutil.ReadAll(os.Stdin)
-			if err != nil {
-				return err
-			}
-		}
+		//
 
-		err = s.Load(buf)
-		if err != nil {
-			return err
-		}
-
-		if ctx.Bool("json") {
-			err = enc.Encode(s.Unwrap())
-			if err != nil {
-				return err
-			}
+		inputName := ctx.String("input")
+		if inputName == "-" {
+			input = os.Stdin
 		} else {
-			debug.Dump(s.Unwrap())
+			input, err = os.Open(inputName)
+			if err != nil {
+				return err
+			}
+			defer input.Close()
 		}
 
-		_, _ = os.Stdout.Write([]byte("\n"))
+		outputName := ctx.String("output")
+		if outputName == "-" {
+			output = os.Stdout
+		} else {
+			output, err = os.OpenFile(
+				outputName,
+				os.O_WRONLY|os.O_TRUNC|os.O_CREATE,
+				0600,
+			)
+			if err != nil {
+				return err
+			}
+			defer output.Close()
+		}
+
+		//
+
+		rawKey, err := ioutil.ReadAll(input)
+		if err != nil {
+			return err
+		}
+
+		enclave, err := fuse.NewKey(
+			fuse.KeyFormatSSH,
+			fuse.DefaultKeyUID,
+			keyType,
+			rawKey,
+		)
+		if err != nil {
+			return err
+		}
+		buf, err := enclave.Open()
+		if err != nil {
+			return err
+		}
+		defer buf.Destroy()
+
+		fmt.Fprint(output, string(buf.Bytes()))
+		fmt.Fprint(output, "\n")
 
 		return nil
 	})
 }
 
+func MessageEncryptAction(ctx *cli.Context) error {
+	return c.Invoke(func() error {
+		var (
+			input  io.ReadCloser
+			output io.WriteCloser
+			err    error
+			key    = ctx.String("key")
+		)
+
+		//
+
+		inputName := ctx.String("input")
+		if inputName == "-" {
+			input = os.Stdin
+		} else {
+			input, err = os.Open(inputName)
+			if err != nil {
+				return err
+			}
+			defer input.Close()
+		}
+
+		outputName := ctx.String("output")
+		if outputName == "-" {
+			output = os.Stdout
+		} else {
+			output, err = os.OpenFile(
+				outputName,
+				os.O_WRONLY|os.O_TRUNC|os.O_CREATE,
+				0600,
+			)
+			if err != nil {
+				return err
+			}
+			defer output.Close()
+		}
+
+		//
+
+		rawKey, err := os.ReadFile(key)
+		if err != nil {
+			return err
+		}
+
+		enclave, err := fuse.NewKey(
+			fuse.KeyFormatSSH,
+			fuse.DefaultKeyUID,
+			fuse.KeyTypePrivate,
+			rawKey,
+		)
+		if err != nil {
+			return err
+		}
+		buf, err := enclave.Open()
+		if err != nil {
+			return err
+		}
+		defer buf.Destroy()
+
+		msg, err := ioutil.ReadAll(input)
+		if err != nil {
+			return err
+		}
+
+		encBuf, err := fuse.Encrypt(buf, fuse.NewPlainMessage(msg))
+		if err != nil {
+			return err
+		}
+
+		_, err = output.Write(encBuf)
+		return err
+	})
+}
+
+func MessageDecryptAction(ctx *cli.Context) error {
+	return c.Invoke(func() error {
+		var (
+			input  io.ReadCloser
+			output io.WriteCloser
+			err    error
+			key    = ctx.String("key")
+		)
+
+		//
+
+		inputName := ctx.String("input")
+		if inputName == "-" {
+			input = os.Stdin
+		} else {
+			input, err = os.Open(inputName)
+			if err != nil {
+				return err
+			}
+			defer input.Close()
+		}
+
+		outputName := ctx.String("output")
+		if outputName == "-" {
+			output = os.Stdout
+		} else {
+			output, err = os.OpenFile(
+				outputName,
+				os.O_WRONLY|os.O_TRUNC|os.O_CREATE,
+				0600,
+			)
+			if err != nil {
+				return err
+			}
+			defer output.Close()
+		}
+
+		//
+
+		rawKey, err := os.ReadFile(key)
+		if err != nil {
+			return err
+		}
+
+		enclave, err := fuse.NewKey(
+			fuse.KeyFormatSSH,
+			fuse.DefaultKeyUID,
+			fuse.KeyTypePrivate,
+			rawKey,
+		)
+		if err != nil {
+			return err
+		}
+		buf, err := enclave.Open()
+		if err != nil {
+			return err
+		}
+		defer buf.Destroy()
+
+		encBuf, err := ioutil.ReadAll(input)
+		if err != nil {
+			return err
+		}
+
+		plainMessage, err := fuse.Decrypt(buf, encBuf)
+		if err != nil {
+			return err
+		}
+		defer fuse.WipeBytes(plainMessage.Data)
+
+		_, err = output.Write(plainMessage.Data)
+		return err
+	})
+}
+
 //
 
-func RootAction(ctx *cli.Context) error {
+func MountAction(ctx *cli.Context) error {
+	err := c.Provide(func(
+		c *config.Config,
+		l log.Logger,
+		r *telemetry.Registry,
+	) (*fuse.Fuse, error) {
+		buf, err := os.ReadFile(c.Fuse.Key.Path)
+		if err != nil {
+			return nil, err
+		}
+
+		enclave, err := fuse.NewKey(
+			c.Fuse.Key.Format,
+			fuse.DefaultKeyUID,
+			fuse.KeyTypePrivate,
+			buf,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return fuse.New(
+			*c.Fuse, l,
+			enclave,
+			ctx.String("source"),
+			ctx.String("target"),
+		)
+	})
+	if err != nil {
+		return err
+	}
+
+	err = c.Provide(func(
+		c *config.Config,
+		l log.Logger,
+		f *fuse.Fuse,
+		ctx *cli.Context,
+		done doneCh,
+		running *sync.WaitGroup,
+	) (*fuse.Server, error) {
+		s, err := f.Mount()
+		if err != nil {
+			return nil, err
+		}
+		err = f.Preload(context.Background())
+		if err != nil {
+			return nil, err
+		}
+
+
+		running.Add(1)
+
+		go func() {
+			defer running.Done()
+
+			<-done
+			l.Info().Msg("unmounting")
+			err := s.Unmount()
+			if err != nil {
+				l.Error().Err(err).Msg("failed to unmount fuse")
+			}
+		}()
+
+		return s, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	//
+
 	components := c.String()
 	_ = c.Invoke(func(l log.Logger) {
 		l.Trace().Msgf(
@@ -470,31 +789,21 @@ func RootAction(ctx *cli.Context) error {
 	return c.Invoke(func(
 		ctx context.Context,
 		cfg *config.Config,
-		w *watchdog.Upgrader,
 		l log.Logger,
 		t *telemetry.Server,
+		s *fuse.Server,
 		running *sync.WaitGroup,
+		done doneCh,
 		errc chan error,
 		sig chan os.Signal,
 	) error {
-		l.Info().Msg("running")
-
-		err := w.Ready()
-		if err != nil {
-			return err
-		}
-
-		//
+		l.Info().Msg("mounting")
 
 	loop:
 		for {
 			select {
-			case <-w.Exit():
-				break loop
 			case <-ctx.Done():
-				w.Stop()
 				break loop
-
 			case err := <-errc:
 				if err != nil {
 					return err
@@ -503,25 +812,18 @@ func RootAction(ctx *cli.Context) error {
 				l.Info().Str("signal", si.String()).Msg("received signal")
 				switch si {
 				case syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
-					w.Stop()
+					close(done)
+					break loop
 				case syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGHUP:
-					err = w.Upgrade()
-					if err != nil {
-						return err
-					}
 				}
 			case <-bus.Config:
-				err = w.Upgrade()
-				if err != nil {
-					return err
-				}
+				// ignore configuration updates at the moment
 			}
 		}
 
 		//
 
 		defer os.Exit(0)
-		l.Info().Msg("shutdown watchdog")
 
 		time.AfterFunc(cfg.ShutdownGraceTime, func() {
 			l.Warn().
@@ -534,6 +836,12 @@ func RootAction(ctx *cli.Context) error {
 
 		return nil
 	})
+}
+
+//
+
+func RootAction(ctx *cli.Context) error {
+	return cli.ShowAppHelp(ctx)
 }
 
 //

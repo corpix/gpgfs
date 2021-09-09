@@ -9,7 +9,6 @@ import (
 	"git.backbone/corpix/gpgfs/pkg/log"
 	serverErrors "git.backbone/corpix/gpgfs/pkg/server/errors"
 	"git.backbone/corpix/gpgfs/pkg/server/middleware"
-	"git.backbone/corpix/gpgfs/pkg/server/session"
 	telemetry "git.backbone/corpix/gpgfs/pkg/telemetry/registry"
 )
 
@@ -19,7 +18,6 @@ type (
 	HandlerFunc    = echo.HandlerFunc
 	Context        = echo.Context
 	Router         = echo.Group
-	Session        = session.Session
 
 	HTTPError = echo.HTTPError
 	Error     = serverErrors.Error

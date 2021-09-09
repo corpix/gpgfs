@@ -8,6 +8,7 @@ import (
 	"github.com/corpix/revip"
 
 	"git.backbone/corpix/gpgfs/pkg/bus"
+	"git.backbone/corpix/gpgfs/pkg/fuse"
 	"git.backbone/corpix/gpgfs/pkg/log"
 	"git.backbone/corpix/gpgfs/pkg/meta"
 	"git.backbone/corpix/gpgfs/pkg/telemetry"
@@ -37,6 +38,7 @@ var (
 type Config struct {
 	Log       *log.Config
 	Telemetry *telemetry.Config
+	Fuse      *fuse.Config
 
 	ShutdownGraceTime time.Duration
 }
@@ -49,6 +51,8 @@ loop:
 			c.Log = &log.Config{}
 		case c.Telemetry == nil:
 			c.Telemetry = &telemetry.Config{}
+		case c.Fuse == nil:
+			c.Fuse = &fuse.Config{}
 		case c.ShutdownGraceTime == 0:
 			c.ShutdownGraceTime = 120 * time.Second
 		default:
