@@ -1,4 +1,4 @@
-{ config, lib, pkgs, crossSystem, ... }:
+{ config, lib, pkgs, ... }:
 with builtins;
 with lib;
 let
@@ -73,8 +73,8 @@ in {
   config = let
     store = derivation {
       name = "secrets";
-      inherit (crossSystem) system;
-		  builder = with pkgs; writeScript "builder.sh" ''
+      system = currentSystem;
+      builder = with pkgs; writeScript "builder.sh" ''
         #!${pkgs.bash}/bin/bash -e
         export PATH=${lib.makeBinPath [coreutils]}
         mkdir -p $out
@@ -82,17 +82,17 @@ in {
           (value: ''
             target="$out/${dirOf value}"
             mkdir -p "$target"
-            cp ${cfg.secretsSource}/${value} "$target"
-            cp ${writeText "${baseNameOf value}.yml" (toJSON (definedAttrs cfg.secrets.${value}))} "$target"
+            cp ${cfg.secretsSource}/${value}.gpg "$target"
+            cp ${writeText "${baseNameOf value}.yml" (toJSON (definedAttrs cfg.secrets.${value}))} "$target/${baseNameOf value}.yml"
           '')
           (attrNames cfg.secrets)}
-		  '';
-		};
-  in mkIf cfg.enable {
+      '';
+    };
+  in mkIf (length (attrNames cfg.secrets) > 0) {
     systemd.tmpfiles.rules = ["d ${cfg.secretsTarget} 1700 root root -"];
     services.gpgfs = {
       enable = true;
-      source = store;
+      source = toString store;
       target = cfg.secretsTarget;
     };
   };

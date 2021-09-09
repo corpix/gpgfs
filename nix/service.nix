@@ -5,7 +5,6 @@ with lib;
 let
   name = "gpgfs";
   cfg = config.services."${name}";
-  pkg = pkgs.callPackage ./default.nix { };
 in {
   options = with types; {
     services."${name}" = {
@@ -39,13 +38,14 @@ in {
     };
   };
 
-  config = optionalAttrs cfg.enable {
+  config = mkIf cfg.enable {
     users = {
       extraUsers = mkIf (name == cfg.user)
         {
           ${name} = {
             name = cfg.user;
             group = cfg.group;
+            isSystemUser = true;
           };
         };
 
@@ -65,7 +65,7 @@ in {
         User  = cfg.user;
         Group = cfg.group;
 
-        ExecStart = "${pkg}/bin/${name} -c ${pkgs.writeText "config.yml" (toJSON cfg.config)} mount --source ${cfg.source} --target ${cfg.target}";
+        ExecStart = "${pkgs.gpgfs}/bin/${name} -c ${pkgs.writeText "config.yml" (toJSON cfg.config)} mount --source ${cfg.source} --target ${cfg.target}";
       };
     };
   };

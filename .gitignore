@@ -1,4 +1,5 @@
 .personal.*
+/build
 /main
 /.env
 /.cache/*
