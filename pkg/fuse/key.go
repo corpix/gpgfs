@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"time"
+	"os"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -36,11 +37,8 @@ const (
 )
 
 var (
-	DefaultKeyUID = packet.NewUserId(
-		"root",
-		"gpgfs fuse key",
-		"root@localhost",
-	)
+	// see init()
+	DefaultKeyUID *packet.UserId
 
 	KeyFormatCtor = KeyCtors{
 		KeyFormatSSH: NewKeyFromSSH,
@@ -52,6 +50,19 @@ var (
 
 	WipeBytes = memguard.WipeBytes
 )
+
+func init() {
+	hostname, err := os.Hostname()
+	if err != nil {
+		panic(err)
+	}
+
+	DefaultKeyUID = packet.NewUserId(
+		"root",
+		"gpgfs fuse key",
+		"root@"+hostname,
+	)
+}
 
 func NewKeyFromSSH(keyUID *packet.UserId, keyType KeyType, rawPrivateKey []byte) ([]byte, error) {
 	// NOTE: we only work with private keys as an input here
@@ -131,6 +142,12 @@ func NewKeyFromSSH(keyUID *packet.UserId, keyType KeyType, rawPrivateKey []byte)
 	if err != nil {
 		return nil, err
 	}
+	gpgKey.Identities[keyUID.Id].Signatures = append(
+		gpgKey.Identities[keyUID.Id].Signatures,
+		gpgKey.Identities[keyUID.Id].SelfSignature,
+	)
+
+	//
 
 	buf := bytes.NewBuffer(nil)
 	writer, err := armor.Encode(buf, armorBlockType, make(map[string]string))
