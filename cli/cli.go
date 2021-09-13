@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -529,16 +530,23 @@ func KeyConvertAction(ctx *cli.Context) error {
 
 		//
 
-		rawKey, err := ioutil.ReadAll(input)
+		chain, err := ioutil.ReadAll(input)
 		if err != nil {
 			return err
 		}
+
+	next:
+		block, rest := pem.Decode(chain)
+		if block == nil {
+			return nil
+		}
+		chain = rest
 
 		enclave, err := fuse.NewKey(
 			fuse.KeyFormatSSH,
 			fuse.DefaultKeyUID,
 			keyType,
-			rawKey,
+			pem.EncodeToMemory(block),
 		)
 		if err != nil {
 			return err
@@ -552,7 +560,7 @@ func KeyConvertAction(ctx *cli.Context) error {
 		fmt.Fprint(output, string(buf.Bytes()))
 		fmt.Fprint(output, "\n")
 
-		return nil
+		goto next
 	})
 }
 
@@ -755,7 +763,6 @@ func MountAction(ctx *cli.Context) error {
 		if err != nil {
 			return nil, err
 		}
-
 
 		running.Add(1)
 
