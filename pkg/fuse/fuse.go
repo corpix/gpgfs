@@ -149,7 +149,7 @@ func (f *Fuse) Preload(ctx context.Context) error {
 
 			//
 
-			attr := Attr{Mode: 0400}
+			attr := Attr{FuseAttr: &FuseAttr{Mode: 0400}}
 			attrPath := strings.TrimSuffix(path, EncryptedSuffix) + AttrSuffix
 			_, err = os.Stat(attrPath)
 			if err == nil {
@@ -167,6 +167,14 @@ func (f *Fuse) Preload(ctx context.Context) error {
 						attrPath,
 					)
 				}
+
+				err = attr.Expand()
+				if err != nil {
+					return errors.Wrap(err, "faield to expand fuse node attributes")
+				}
+
+				//
+
 				f.log.
 					Debug().
 					Str("dir", dir).

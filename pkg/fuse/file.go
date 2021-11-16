@@ -2,30 +2,38 @@ package fuse
 
 import (
 	"context"
-	"syscall"
+	"os/user"
+	"strconv"
 	"sync"
+	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 
+	"git.backbone/corpix/gpgfs/pkg/errors"
 	"git.backbone/corpix/gpgfs/pkg/log"
 )
 
 const (
 	EncryptedSuffix = ".gpg"
-	AttrSuffix = ".yml"
+	AttrSuffix      = ".yml"
 )
 
 type (
-	Attr  = fuse.Attr
-	FSAttr = fs.StableAttr
-	Inode = fs.Inode
+	Attr struct {
+		*FuseAttr
 
+		User  string
+		Group string
+	}
+	FuseAttr = fuse.Attr
+	FSAttr   = fs.StableAttr
+	Inode    = fs.Inode
 
 	File struct {
 		Inode
 
-		mu sync.Mutex
+		mu      sync.Mutex
 		log     log.Logger
 		attr    Attr
 		content *Enclave
@@ -41,6 +49,39 @@ type (
 )
 
 var _ = (FileNode)((*File)(nil))
+
+//
+
+func (a *Attr) Expand() error {
+	if a.User != "" {
+		u, err := user.Lookup(a.User)
+		if err != nil {
+			return err
+		}
+
+		id, err := strconv.ParseUint(u.Uid, 10, 32)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parseint given uid %q", u.Uid)
+		}
+
+		a.FuseAttr.Uid = uint32(id)
+	}
+	if a.Group != "" {
+		g, err := user.LookupGroup(a.Group)
+		if err != nil {
+			return err
+		}
+
+		id, err := strconv.ParseUint(g.Gid, 10, 32)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parseint given gid %q", g.Gid)
+		}
+
+		a.FuseAttr.Gid = uint32(id)
+	}
+
+	return nil
+}
 
 //
 
@@ -105,7 +146,7 @@ func (f *File) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut)
 	}
 	defer buf.Destroy()
 
-	out.Attr = f.attr
+	out.Attr = *f.attr.FuseAttr
 	out.Attr.Size = uint64(len(buf.Bytes()))
 
 	return fs.OK

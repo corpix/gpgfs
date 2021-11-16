@@ -5,8 +5,8 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rsa"
-	"time"
 	"os"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
