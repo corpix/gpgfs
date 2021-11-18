@@ -219,6 +219,7 @@ func (f *Fuse) Preload(ctx context.Context) error {
 
 func (f *Fuse) Mount() (*Server, error) {
 	opts := &fs.Options{}
+	opts.AllowOther = f.config.AllowOther
 	opts.Debug = f.config.Debug
 
 	server, err := fs.Mount(f.target, f, opts)

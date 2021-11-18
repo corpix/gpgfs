@@ -3,6 +3,7 @@ log:
 telemetry:
   enable: true
 fuse:
+  allow-other: true
   key:
     format: ssh
     path: ./test/ssh-key-rsa

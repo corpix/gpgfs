@@ -5,8 +5,9 @@ import (
 )
 
 type Config struct {
-	Key   *KeyConfig `yaml:"key"`
-	Debug bool       `yaml:"debug"`
+	Key        *KeyConfig `yaml:"key"`
+	AllowOther bool       `yaml:"allow-other"`
+	Debug      bool       `yaml:"debug"`
 }
 
 func (c *Config) Default() {
