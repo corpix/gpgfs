@@ -58,10 +58,10 @@ in {
       wantedBy = ["multi-user.target"];
 
       serviceConfig = {
-        Type        = "notify";
-        WatchdogSec = 30;
-        Restart     = "on-failure";
-        RestartSec  = 30;
+        Type            = "notify";
+        TimeoutStartSec = 30;
+        Restart         = "on-failure";
+        RestartSec      = 30;
 
         User  = cfg.user;
         Group = cfg.group;
