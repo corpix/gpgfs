@@ -2,7 +2,7 @@ package meta
 
 var (
 	Name               = "gpgfs"
-	EnvNamespace       = "GOBOILERPLATE"
+	EnvNamespace       = "GPGFS"
 	TelemetryNamespace = "gpgfs"
 	Version            = "development"
 )
