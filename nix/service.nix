@@ -58,14 +58,21 @@ in {
       wantedBy = ["multi-user.target"];
 
       serviceConfig = {
-        Type       = "simple";
-        Restart    = "on-failure";
-        RestartSec = 30;
+        Type        = "notify";
+        WatchdogSec = 30;
+        Restart     = "on-failure";
+        RestartSec  = 30;
 
         User  = cfg.user;
         Group = cfg.group;
 
-        ExecStart = "${pkgs.gpgfs}/bin/${name} -c ${pkgs.writeText "config.yml" (toJSON cfg.config)} mount --source ${cfg.source} --target ${cfg.target}";
+        ExecStart = concatStringsSep " " [
+          "${pkgs.gpgfs}/bin/${name}"
+          "-c" (pkgs.writeText "config.yml" (toJSON cfg.config))
+          "mount"
+          "--source" cfg.source
+          "--target" cfg.target
+        ];
       };
     };
   };

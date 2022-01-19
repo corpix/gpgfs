@@ -10,8 +10,10 @@ require (
 	github.com/awnumar/memguard v0.22.2
 	github.com/cloudflare/tableflip v1.2.2 // indirect
 	github.com/cockroachdb/errors v1.8.4
+	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/corpix/revip v0.0.0-20210520092701-5e9c2358f4d6
 	github.com/davecgh/go-spew v1.1.1
+	github.com/go-yaml/yaml v2.1.0+incompatible
 	github.com/hanwen/go-fuse/v2 v2.1.0
 	github.com/klauspost/compress v1.9.0
 	github.com/labstack/echo/v4 v4.3.0

@@ -30,7 +30,6 @@ github.com/ProtonMail/go-mime
 github.com/ProtonMail/gopenpgp/v2/armor
 github.com/ProtonMail/gopenpgp/v2/constants
 github.com/ProtonMail/gopenpgp/v2/crypto
-github.com/ProtonMail/gopenpgp/v2/helper
 github.com/ProtonMail/gopenpgp/v2/internal
 # github.com/PuerkitoBio/purell v1.1.1
 github.com/PuerkitoBio/purell
@@ -81,7 +80,9 @@ github.com/cockroachdb/redact/internal/fmtsort
 github.com/cockroachdb/sentry-go
 # github.com/coreos/go-semver v0.2.0
 github.com/coreos/go-semver/semver
-# github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
+# github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
+## explicit
+github.com/coreos/go-systemd/daemon
 github.com/coreos/go-systemd/journal
 # github.com/coreos/pkg v0.0.0-20160727233714-3ac0863d7acf
 github.com/coreos/pkg/capnslog
@@ -104,6 +105,7 @@ github.com/go-openapi/spec
 # github.com/go-openapi/swag v0.19.12
 github.com/go-openapi/swag
 # github.com/go-yaml/yaml v2.1.0+incompatible
+## explicit
 github.com/go-yaml/yaml
 # github.com/gogo/protobuf v1.3.2
 github.com/gogo/protobuf/gogoproto

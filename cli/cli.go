@@ -19,6 +19,7 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 	cli "github.com/urfave/cli/v2"
 	di "go.uber.org/dig"
+	daemon "github.com/coreos/go-systemd/daemon"
 
 	"git.backbone/corpix/gpgfs/pkg/bus"
 	"git.backbone/corpix/gpgfs/pkg/config"
@@ -764,8 +765,6 @@ func MountAction(ctx *cli.Context) error {
 			return nil, err
 		}
 
-		running.Add(1)
-
 		go func() {
 			defer running.Done()
 
@@ -776,6 +775,20 @@ func MountAction(ctx *cli.Context) error {
 				l.Error().Err(err).Msg("failed to unmount fuse")
 			}
 		}()
+
+		//
+
+		notified, err := daemon.SdNotify(true, daemon.SdNotifyReady)
+		if err != nil {
+			return nil, err
+		}
+		if notified {
+			l.Debug().Msg("indicated readiness to systemd")
+		}
+
+		//
+
+		running.Add(1)
 
 		return s, nil
 	})
